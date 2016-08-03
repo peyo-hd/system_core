@@ -403,7 +403,7 @@ bool Service::HandleLine(const std::vector<std::string>& args, std::string* err)
     return (this->*handler)(args, err);
 }
 
-bool Service::Start() {
+bool Service::Start(const std::vector<std::string>& dynamic_args) {
     // Starting a service removes it from the disabled or reset state and
     // immediately takes it out of the restarting state if it was in there.
     flags_ &= (~(SVC_DISABLED|SVC_RESTARTING|SVC_RESET|SVC_RESTART|SVC_DISABLED_START));
@@ -433,6 +433,12 @@ bool Service::Start() {
     struct stat sb;
     if (stat(args_[0].c_str(), &sb) == -1) {
         PLOG(ERROR) << "cannot find '" << args_[0] << "', disabling '" << name_ << "'";
+        flags_ |= SVC_DISABLED;
+        return false;
+    }
+
+    if ((!(flags_ & SVC_ONESHOT)) && !dynamic_args.empty()) {
+        LOG(ERROR) << "servce '" <<  args_[0] << "' must be one-shot to use dynamic args, disabling";
         flags_ |= SVC_DISABLED;
         return false;
     }
@@ -582,6 +588,9 @@ bool Service::Start() {
             }
             strs.push_back(const_cast<char*>(expanded_args[i].c_str()));
         }
+        for (const auto& s : dynamic_args) {
+            strs.push_back(const_cast<char*>(s.c_str()));
+        }
         strs.push_back(nullptr);
 
         if (execve(strs[0], (char**) &strs[0], (char**) ENV) < 0) {
@@ -614,6 +623,11 @@ bool Service::Start() {
 
     NotifyStateChange("running");
     return true;
+}
+
+bool Service::Start() {
+    const std::vector<std::string> null_dynamic_args;
+    return Start(null_dynamic_args);
 }
 
 bool Service::StartIfNotDisabled() {
